@@ -29,28 +29,41 @@ func Do[T any](ctx context.Context, opts Options, fn RetryFunc[T]) (T, error) {
 		return zero, fmt.Errorf("retry: context must not be nil")
 	}
 
-	ctx, cls := context.WithTimeout(ctx, opts.TotalTimeout)
-	defer cls()
+	if opts.TotalTimeout > 0 {
+		var cls context.CancelFunc
+		ctx, cls = context.WithTimeout(ctx, opts.TotalTimeout)
+		defer cls()
+	}
 
+	shouldRetry := opts.ShouldRetry
+	if shouldRetry == nil {
+		shouldRetry = func(error) bool { return true }
+	}
+	backoff := opts.Backoff
+	if backoff == nil {
+		backoff = func(uint) time.Duration { return 0 }
+	}
+
+	var lastErr error
 	for attempt := range opts.MaxAttempts {
 		ret, err := fn(ctx)
 		if err == nil {
 			return ret, nil
 		}
+		lastErr = err
 
-		if !opts.ShouldRetry(err) {
+		if !shouldRetry(err) {
 			return zero, err
 		}
 
 		select {
-		case <-time.After(opts.Backoff(attempt)):
+		case <-time.After(backoff(attempt)):
 		case <-ctx.Done():
 			return zero, ctx.Err()
 		}
-
 	}
 
-	return zero, fmt.Errorf("max attempts reached")
+	return zero, fmt.Errorf("retry: max attempts reached: %w", lastErr)
 }
 
 // DoVoid is a convenience wrapper around [Do] for operations that return no value.
@@ -72,19 +85,23 @@ func FixedBackoff(d time.Duration) func(attempt uint) time.Duration {
 // LinearBackoff returns a backoff that waits d * attempt.
 func LinearBackoff(d time.Duration) func(attempt uint) time.Duration {
 	return func(attempt uint) time.Duration {
+		maxDuration := time.Duration(math.MaxInt64)
 		if attempt > math.MaxInt64 {
-			return math.MaxInt64
+			return maxDuration
 		}
-
-		return d * time.Duration(attempt)
+		dur := time.Duration(attempt)
+		if d > 0 && dur > maxDuration/d {
+			return maxDuration
+		}
+		return d * dur
 	}
 }
 
-// ExponentialBackoff returns a backoff that waits max(d * 2^attempt, 2^63 - 1).
+// ExponentialBackoff returns a backoff that waits min(d * 2^attempt, 2^63 - 1).
 func ExponentialBackoff(d time.Duration) func(attempt uint) time.Duration {
 	return func(attempt uint) time.Duration {
 		maxDuration := time.Duration(1<<63 - 1)
-		if attempt <= 0 || d < 0 {
+		if attempt == 0 || d < 0 {
 			return d
 		}
 
