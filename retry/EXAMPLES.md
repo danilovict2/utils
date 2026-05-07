@@ -140,6 +140,79 @@ attempt 3  fixed=1s      linear=3s      exponential=8s
 
 ---
 
+### Using optional fields (nil Backoff and ShouldRetry)
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/kashifkhan0771/utils/retry"
+)
+
+func main() {
+	// Backoff and ShouldRetry are optional.
+	// nil Backoff = no delay between attempts.
+	// nil ShouldRetry = always retry.
+	opts := retry.Options{
+		MaxAttempts:  3,
+		TotalTimeout: 5 * time.Second,
+	}
+
+	result, err := retry.Do(context.Background(), opts, func(ctx context.Context) (string, error) {
+		return callAPI(ctx)
+	})
+	fmt.Println(result, err)
+}
+```
+#### Output:
+```
+response <nil>
+```
+
+---
+
+### Inspecting the cause after max attempts exhausted
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/kashifkhan0771/utils/retry"
+)
+
+var ErrServiceUnavailable = errors.New("service unavailable")
+
+func main() {
+	opts := retry.Options{
+		MaxAttempts:  3,
+		TotalTimeout: 5 * time.Second,
+		Backoff:      retry.FixedBackoff(100 * time.Millisecond),
+		ShouldRetry:  func(err error) bool { return true },
+	}
+
+	_, err := retry.Do(context.Background(), opts, func(ctx context.Context) (string, error) {
+		return "", ErrServiceUnavailable
+	})
+
+	fmt.Println(err)
+	fmt.Println(errors.Is(err, ErrServiceUnavailable))
+}
+```
+#### Output:
+```
+retry: max attempts reached: service unavailable
+true
+```
+
+---
+
 ### Respecting the total timeout
 ```go
 package main

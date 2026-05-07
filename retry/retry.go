@@ -93,6 +93,7 @@ func LinearBackoff(d time.Duration) func(attempt uint) time.Duration {
 		if d > 0 && dur > maxDuration/d {
 			return maxDuration
 		}
+
 		return d * dur
 	}
 }

@@ -26,11 +26,13 @@ The `retry` package provides a generic, context-aware way to retry fallible oper
   Waits `d * attempt`. Grows linearly: `0, d, 2d, 3d, …`
 
 - **`ExponentialBackoff(d time.Duration) func(attempt uint) time.Duration`**:  
-  Waits `max(d * 2^attempt, 2^63 - 1)`. Doubles on each failure: `d, 2d, 4d, 8d, …`
+  Waits `min(d * 2^attempt, 2^63 - 1)`. Doubles on each failure: `d, 2d, 4d, 8d, …`
 
 #### **Notes**
-- `TotalTimeout` is enforced via a derived context passed to every attempt. If the deadline is exceeded mid-backoff, `Do` returns `context.DeadlineExceeded` immediately.
+- `TotalTimeout` is enforced via a derived context passed to every attempt. If the deadline is exceeded mid-backoff, `Do` returns `context.DeadlineExceeded` immediately. A value of `0` means no timeout is applied.
 - A non-retryable error returned from `ShouldRetry` is returned as-is, without wrapping.
+- When `MaxAttempts` is exhausted, `Do` returns an error wrapping the last error from `fn`: `"retry: max attempts reached: <last error>"`. Use `errors.Is`/`errors.As` to inspect the underlying cause.
+- `Backoff` and `ShouldRetry` are optional. If `nil`, `Backoff` defaults to no delay and `ShouldRetry` defaults to always retry.
 - `LinearBackoff` produces a zero-length first pause (`attempt 0`). Prefer `FixedBackoff` if an immediate first retry is undesirable.
 
 ## Examples:
